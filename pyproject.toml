@@ -3,8 +3,8 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "business-central-mcp-server"
-version = "2.0.0"
+name = "mcp-business-central"
+version = "1.0.0"
 description = "Professional MCP Server for Microsoft Dynamics 365 Business Central"
 readme = "README.md"
 authors = [
@@ -30,10 +30,10 @@ include = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/DmitryKatson/mcp-business-central-server"
-"Repository" = "https://github.com/DmitryKatson/mcp-business-central-server"
-"Issues" = "https://github.com/DmitryKatson/mcp-business-central-server/issues"
-"Documentation" = "https://github.com/DmitryKatson/mcp-business-central-server#readme"
+"Homepage" = "https://github.com/DmitryKatson/mcp-business-central"
+"Repository" = "https://github.com/DmitryKatson/mcp-business-central"
+"Issues" = "https://github.com/DmitryKatson/mcp-business-central/issues"
+"Documentation" = "https://github.com/DmitryKatson/mcp-business-central#readme"
 
 [project.scripts]
-business-central-mcp-server = "mcp_business_central:main_entry"
+mcp-business-central = "mcp_business_central:main_entry"

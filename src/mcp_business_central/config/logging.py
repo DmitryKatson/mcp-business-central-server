@@ -9,7 +9,7 @@ import logging
 import sys
 from typing import Optional
 
-from .config import LoggingConfig
+from .settings import LoggingConfig
 
 
 def setup_logging(config: Optional[LoggingConfig] = None) -> None:
@@ -24,7 +24,10 @@ def setup_logging(config: Optional[LoggingConfig] = None) -> None:
     
     # Configure root logger
     root_logger = logging.getLogger()
-    root_logger.setLevel(getattr(logging, config.level.upper(), logging.INFO))
+    
+    # For MCP servers, we only want to show ERROR and CRITICAL levels to stderr
+    # This prevents INFO/DEBUG logs from showing as [error] in Cursor
+    root_logger.setLevel(logging.ERROR)
     
     # Clear existing handlers
     root_logger.handlers.clear()
@@ -32,30 +35,46 @@ def setup_logging(config: Optional[LoggingConfig] = None) -> None:
     # Create formatter
     formatter = logging.Formatter(config.format)
     
-    # Console handler
-    console_handler = logging.StreamHandler(sys.stdout)
+    # Console handler for errors only - Use stderr for MCP compatibility
+    console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setFormatter(formatter)
+    console_handler.setLevel(logging.ERROR)  # Only show actual errors in Cursor
     root_logger.addHandler(console_handler)
     
-    # File handler (if configured)
+    # File handler for all levels if configured
     if config.log_file:
         try:
             file_handler = logging.FileHandler(config.log_file)
             file_handler.setFormatter(formatter)
+            file_handler.setLevel(getattr(logging, config.level.upper(), logging.INFO))
             root_logger.addHandler(file_handler)
-        except Exception as e:
-            # Log to console if file logging fails
-            console_handler.handle(
-                logging.LogRecord(
-                    name="logging_setup",
-                    level=logging.WARNING,
-                    pathname="",
-                    lineno=0,
-                    msg=f"Failed to setup file logging: {e}",
-                    args=(),
-                    exc_info=None
-                )
-            )
+        except Exception:
+            # Silently fail file logging setup
+            pass
+    
+    # Completely silence framework loggers
+    framework_loggers = ['mcp', 'urllib3', 'requests', 'aiohttp', 'asyncio', 'msal']
+    for logger_name in framework_loggers:
+        framework_logger = logging.getLogger(logger_name)
+        framework_logger.setLevel(logging.CRITICAL)
+        framework_logger.disabled = True
+
+
+def enable_verbose_logging() -> None:
+    """
+    Enable verbose logging to stderr for debugging purposes.
+    
+    Call this function when you want to see INFO/DEBUG logs in Cursor.
+    Note: This will cause INFO logs to appear as [error] in Cursor logs.
+    """
+    root_logger = logging.getLogger()
+    
+    # Find the console handler and lower its level
+    for handler in root_logger.handlers:
+        if isinstance(handler, logging.StreamHandler) and handler.stream == sys.stderr:
+            handler.setLevel(logging.INFO)
+            root_logger.setLevel(logging.INFO)
+            break
 
 
 def get_logger(name: str) -> logging.Logger:

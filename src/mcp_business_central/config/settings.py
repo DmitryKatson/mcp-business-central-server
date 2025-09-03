@@ -68,7 +68,15 @@ class LoggingConfig:
     
     @classmethod
     def from_environment(cls) -> 'LoggingConfig':
-        """Load logging configuration from environment variables."""
+        """
+        Load logging configuration from environment variables.
+        
+        Environment variables:
+        - LOG_LEVEL: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        - LOG_FORMAT: Custom log format string
+        - LOG_FILE: Path to log file (optional, enables file logging)
+        - MCP_VERBOSE: Set to 'true' to show INFO logs in Cursor (shows as [error])
+        """
         load_dotenv()
         
         return cls(

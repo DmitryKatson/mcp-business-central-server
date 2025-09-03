@@ -15,23 +15,20 @@ async def main() -> None:
     Initializes all components and starts the MCP server to handle client requests.
     """
     try:
-        # Log server startup
-        logger.info("Starting Business Central MCP server...")
-        
         # Import tools to register them with the MCP server
         from ..tools import implementations  # noqa: F401
         
-        # Run the MCP server
-        logger.info("Running MCP server...")
+        # Run the MCP server - logging happens after protocol establishment
         await mcp.run_stdio_async()
         
     except KeyboardInterrupt:
-        logger.info("Server shutdown requested")
+        # Silent shutdown for MCP compatibility
+        pass
     except Exception as e:
-        logger.error(f"Server error: {e}")
+        # Only log critical errors that would prevent server startup
+        import sys
+        print(f"Critical server error: {e}", file=sys.stderr)
         raise
-    finally:
-        logger.info("Business Central MCP server stopped")
 
 
 if __name__ == "__main__":

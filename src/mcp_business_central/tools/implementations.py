@@ -5,12 +5,17 @@ This module contains all the MCP tool implementations for interacting with
 Microsoft Dynamics 365 Business Central APIs.
 """
 
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, Annotated
+from pydantic import Field
 
 from ..core.dependencies import mcp, logger, api_client, company_manager
 from ..config.exceptions import ValidationError, APIError, CompanyNotFoundError
 from ..models import APIResponse, SchemaInfo
-from ..config.utils import safe_int_convert, validate_resource_name, validate_field_name, build_odata_filter
+from ..config.utils import validate_resource_name, validate_field_name, build_odata_filter
+from ..config.metadata import (
+    parse_metadata_xml, get_metadata_summary, search_entities, 
+    search_enums, search_properties, search_relationships
+)
 
 @mcp.tool(name="list_companies", description="List all available companies in the Business Central environment.")
 async def discover_companies_tool() -> Dict[str, Any]:
@@ -40,7 +45,9 @@ async def discover_companies_tool() -> Dict[str, Any]:
         return APIResponse.error_response(str(e)).to_dict()
 
 @mcp.tool(name="set_active_company", description="Set the active company for subsequent Business Central operations.")
-async def set_company_tool(company_id: str) -> Dict[str, Any]:
+async def set_company_tool(
+    company_id: Annotated[str, Field(description="The unique identifier of the company to set as active (UUID format)")],
+) -> Dict[str, Any]:
     """Set the active company for Business Central operations."""
     logger.info(f"Tool 'set_active_company' called with company_id={company_id}")
     
@@ -87,8 +94,163 @@ async def get_active_company_tool() -> Dict[str, Any]:
 
 
 
+@mcp.tool(name="list_resources", description="List all available Business Central resources in the current environment.")
+async def list_resources_tool() -> Dict[str, Any]:
+    """List all available Business Central resources using native API discovery."""
+    logger.info("Tool 'list_resources' called")
+    
+    try:
+        # Step 1: Resource discovery using global endpoint (no company needed)
+        logger.info("Discovering all available resources...")
+        result = await api_client.request("GET", "", company_id=None)  # No company context needed
+        
+        all_resources = []
+        if isinstance(result, dict) and 'value' in result:
+            all_resources = [
+                {
+                    "name": item.get("name"),
+                    "kind": item.get("kind"), 
+                    "url": item.get("url")
+                }
+                for item in result.get('value', [])
+                if item.get("name")
+            ]
+        
+        # Step 2: Filter EntitySets (the resources users typically want)
+        entity_sets = [r for r in all_resources if r.get("kind") == "EntitySet"]
+        other_resources = [r for r in all_resources if r.get("kind") != "EntitySet"]
+        
+        # Step 3: Create comprehensive response
+        discovery_data = {
+            "discovery_method": "Business Central native API discovery endpoints",
+            "summary": {
+                "total_resources": len(all_resources),
+                "entity_sets": len(entity_sets),
+                "other_resources": len(other_resources)
+            },
+            "entity_sets": entity_sets,
+            "other_resources": other_resources,
+            "all_resources": all_resources,
+            "usage_tips": [
+                "All resources listed are available without company context",
+                "EntitySets are the main data resources (customers, items, etc.)",
+                "Resource names are case-sensitive",
+                "Use get_resource_schema to explore fields for any resource",
+                "Use get_odata_metadata to retrieve the full OData XML schema"
+            ]
+        }
+        
+        response = APIResponse.success_response(discovery_data)
+        return response.to_dict()
+        
+    except APIError as e:
+        logger.error(f"API error in list_resources: {e}")
+        return APIResponse.error_response(str(e)).to_dict()
+    except Exception as e:
+        logger.error(f"Unexpected error in list_resources: {e}")
+        return APIResponse.error_response(f"Unexpected error: {str(e)}").to_dict()
+
+
+@mcp.tool(name="get_odata_metadata", description="Search and retrieve specific OData metadata information for Business Central entities, properties, relationships, or enums. Use search terms to get focused, relevant metadata instead of the full schema.")
+async def get_odata_metadata_tool(
+    search: Annotated[Optional[str], Field(description="Search term to filter metadata (entity name, property, enum, etc.). If not provided, returns summary of all entities") ] = None,
+    search_type: Annotated[Optional[str], Field(description="Type of metadata to search: 'entity', 'property', 'relationship', 'enum', 'all'") ] = "all",
+    include_properties: Annotated[Optional[bool], Field(description="Include detailed property information for found entities")] = True,
+    include_relationships: Annotated[Optional[bool], Field(description="Include navigation properties/relationships for found entities")] = True
+) -> Dict[str, Any]:
+    """Search and retrieve specific OData metadata information."""
+    logger.info(f"Tool 'get_odata_metadata' called with search='{search}', search_type='{search_type}'")
+    
+    try:
+        # Import aiohttp for direct HTTP requests
+        import aiohttp
+        from ..core.dependencies import config, auth_manager
+        
+        # Get authentication token
+        token = await auth_manager.get_access_token()
+        
+        # Build the metadata URL
+        base_url = f"https://api.businesscentral.dynamics.com/v2.0/{config.tenant_id}/{config.environment}/api/v2.0"
+        metadata_url = f"{base_url}/$metadata"
+        
+        # Make direct HTTP request for XML content
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/xml",
+            "Content-Type": "application/xml"
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(metadata_url, headers=headers) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    return APIResponse.error_response(f"HTTP {response.status}: {error_text}").to_dict()
+                
+                xml_content = await response.text()
+        
+        # Parse XML using metadata utilities
+        schema = parse_metadata_xml(xml_content)
+        
+        result = {
+            "search_term": search,
+            "search_type": search_type,
+            "namespace": schema.get('Namespace', 'Microsoft.NAV')
+        }
+        
+        # If no search term, return summary
+        if not search:
+            result.update(get_metadata_summary(schema))
+        else:
+            # Perform targeted search
+            search_lower = search.lower()
+            
+            if search_type in ['entity', 'all']:
+                entities = search_entities(schema, search_lower, include_properties, include_relationships)
+                if entities:
+                    result['entities'] = entities
+            
+            if search_type in ['enum', 'all']:
+                enums = search_enums(schema, search_lower)
+                if enums:
+                    result['enums'] = enums
+            
+            if search_type in ['property', 'all']:
+                properties = search_properties(schema, search_lower)
+                if properties:
+                    result['properties_found_in'] = properties
+            
+            if search_type in ['relationship', 'all']:
+                relationships = search_relationships(schema, search_lower)
+                if relationships:
+                    result['relationships'] = relationships
+        
+        # Add helpful tips based on what was found
+        tips = []
+        if 'entities' in result:
+            tips.append("Use list_records, get_record_by_id, or find_records_by_field with these entity names")
+        if 'enums' in result:
+            tips.append("Use enum values in filters (e.g., itemType eq 'Inventory')")
+        if 'properties_found_in' in result:
+            tips.append("Use these property names in select, filter, or orderby parameters")
+        
+        if tips:
+            result['usage_tips'] = tips
+        
+        return APIResponse.success_response(result).to_dict()
+                    
+    except ValueError as e:
+        logger.error(f"Metadata parsing error: {e}")
+        return APIResponse.error_response(f"Failed to parse metadata: {str(e)}").to_dict()
+    except Exception as e:
+        logger.error(f"Error fetching OData metadata: {e}")
+        return APIResponse.error_response(f"Failed to fetch OData metadata: {str(e)}").to_dict()
+
+
 @mcp.tool(name="get_resource_schema", description="Get schema information and available fields for a Business Central resource.")
-async def get_schema_tool(resource: str, company_id: Optional[str] = None) -> Dict[str, Any]:
+async def get_schema_tool(
+    resource: Annotated[str, Field(description="The Business Central resource name (e.g., 'customers', 'items', 'salesOrders')")],
+    company_id: Annotated[Optional[str], Field(description="Optional company ID. If not provided, uses the active company")] = None
+) -> Dict[str, Any]:
     """Get schema information for a Business Central resource."""
     logger.info(f"Tool 'get_resource_schema' called for resource={resource}")
     
@@ -141,11 +303,19 @@ async def get_schema_tool(resource: str, company_id: Optional[str] = None) -> Di
         logger.error(f"Unexpected error in get_resource_schema: {e}")
         return APIResponse.error_response(f"Unexpected error: {str(e)}").to_dict()
 
-@mcp.tool(name="list_records", description="List records from a Business Central resource with optional filtering and pagination.")
-async def list_items_tool(resource: str, filter: Optional[str] = None, top: Optional[Union[str, int]] = None, 
-                         skip: Optional[Union[str, int]] = None, company_id: Optional[str] = None) -> Dict[str, Any]:
-    """List items from a Business Central resource."""
-    logger.info(f"Tool 'list_records' called for resource={resource}, filter={filter}, top={top}, skip={skip}")
+@mcp.tool(name="list_records", description="List records from a Business Central resource with optional filtering, ordering, expansion, selection, and pagination.")
+async def list_items_tool(
+    resource: Annotated[str, Field(description="The Business Central resource name (e.g., 'customers', 'items', 'salesOrders')")],
+    filter: Annotated[Optional[str], Field(description="OData filter (e.g., city eq 'Seattle', amount gt 1000). Use guid'...' for GUIDs (e.g., customerId ne guid'00000000-0000-0000-0000-000000000000'). 'or' across different fields isn't supported—split queries. 'in' isn't supported—use multiple eq (same field) or separate calls.")] = None,
+    top: Annotated[Optional[int], Field(description="Maximum number of records to return (e.g., 50)")] = None,
+    skip: Annotated[Optional[int], Field(description="Number of records to skip for pagination (e.g., 100)")] = None,
+    orderby: Annotated[Optional[str], Field(description="OData orderby expression (e.g., 'displayName asc' or 'createdDate desc')")] = None,
+    expand: Annotated[Optional[str], Field(description="Related entities to include (e.g., 'salesOrderLines' or 'customer,defaultDimensions')")] = None,
+    select: Annotated[Optional[str], Field(description="Specific fields to return (e.g., 'id,displayName,email' or 'id,amount')")] = None,
+    company_id: Annotated[Optional[str], Field(description="Optional company ID. If not provided, uses the active company")] = None
+) -> Dict[str, Any]:
+    """List items from a Business Central resource with full OData query support."""
+    logger.info(f"Tool 'list_records' called for resource={resource}, filter={filter}, top={top}, skip={skip}, orderby={orderby}, expand={expand}, select={select}")
     
     try:
         # Validate and normalize inputs
@@ -154,22 +324,22 @@ async def list_items_tool(resource: str, filter: Optional[str] = None, top: Opti
         if not company_id:
             company_id = await company_manager.get_active_company_id()
         
-        # Convert string parameters to proper types
-        top_int = safe_int_convert(top)
-        skip_int = safe_int_convert(skip)
-        
-        logger.debug(f"Converted parameters - top: {top_int}, skip: {skip_int}")
-        
-        # Build parameters dictionary
+        # Build OData parameters dictionary
         params = {}
         if filter is not None:
             params['$filter'] = filter
-        if top_int is not None:
-            params['$top'] = top_int
-        if skip_int is not None:
-            params['$skip'] = skip_int
+        if top is not None:
+            params['$top'] = top
+        if skip is not None:
+            params['$skip'] = skip
+        if orderby is not None:
+            params['$orderby'] = orderby
+        if expand is not None:
+            params['$expand'] = expand
+        if select is not None:
+            params['$select'] = select
         
-        logger.debug(f"Final request parameters: {params}")
+        logger.debug(f"Final OData request parameters: {params}")
         
         result = await api_client.request("GET", resource, params=params, company_id=company_id)
         
@@ -178,10 +348,13 @@ async def list_items_tool(resource: str, filter: Optional[str] = None, top: Opti
             result['_metadata'] = {
                 "company_id": company_id,
                 "request_params": {
-                "resource": resource,
-                "filter": filter,
-                "top": top_int,
-                    "skip": skip_int
+                    "resource": resource,
+                    "filter": filter,
+                    "top": top,
+                    "skip": skip,
+                    "orderby": orderby,
+                    "expand": expand,
+                    "select": select
                 }
             }
         
@@ -198,11 +371,19 @@ async def list_items_tool(resource: str, filter: Optional[str] = None, top: Opti
         logger.error(f"Unexpected error in list_records: {e}")
         return APIResponse.error_response(f"Unexpected error: {str(e)}").to_dict()
 
-@mcp.tool(name="find_records_by_field", description="Find records where a specific field matches a given value.")
-async def get_items_by_field_tool(resource: str, field: str, value: str, 
-                                 company_id: Optional[str] = None) -> Dict[str, Any]:
-    """Get items from Business Central by field value."""
-    logger.info(f"Tool 'find_records_by_field' called for resource={resource}, field={field}, value={value}")
+@mcp.tool(name="find_records_by_field", description="Find records where a specific field matches a given value with optional ordering, expansion, and selection.")
+async def get_items_by_field_tool(
+    resource: Annotated[str, Field(description="The Business Central resource name (e.g., 'customers', 'items', 'salesOrders')")],
+    field: Annotated[str, Field(description="The field name to search by (e.g., 'city', 'displayName', 'email')")],
+    value: Annotated[str, Field(description="The value to search for (will be automatically quoted for string comparison)")],
+    orderby: Annotated[Optional[str], Field(description="OData orderby expression (e.g., 'displayName asc' or 'createdDate desc')")] = None,
+    expand: Annotated[Optional[str], Field(description="Related entities to include (e.g., 'salesOrderLines' or 'customer,defaultDimensions')")] = None,
+    select: Annotated[Optional[str], Field(description="Specific fields to return (e.g., 'id,displayName,email' or 'id,amount')")] = None,
+    top: Annotated[Optional[int], Field(description="Maximum number of records to return (e.g., 50)")] = None,
+    company_id: Annotated[Optional[str], Field(description="Optional company ID. If not provided, uses the active company")] = None
+) -> Dict[str, Any]:
+    """Get items from Business Central by field value with full OData query support."""
+    logger.info(f"Tool 'find_records_by_field' called for resource={resource}, field={field}, value={value}, orderby={orderby}, expand={expand}, select={select}, top={top}")
     
     try:
         # Validate inputs
@@ -217,7 +398,8 @@ async def get_items_by_field_tool(resource: str, field: str, value: str,
         
         logger.debug(f"Built filter expression: {filter_expr}")
         
-        return await list_items_tool(resource, filter=filter_expr, company_id=company_id)
+        return await list_items_tool(resource, filter=filter_expr, orderby=orderby, 
+                                   expand=expand, select=select, top=top, company_id=company_id)
         
     except ValidationError as e:
         logger.error(f"Validation error in find_records_by_field: {e}")
@@ -226,11 +408,16 @@ async def get_items_by_field_tool(resource: str, field: str, value: str,
         logger.error(f"Unexpected error in find_records_by_field: {e}")
         return APIResponse.error_response(f"Unexpected error: {str(e)}").to_dict()
 
-@mcp.tool(name="get_record_by_id", description="Get a specific record by its unique identifier.")
-async def get_item_by_id_tool(resource: str, item_id: str, 
-                             company_id: Optional[str] = None) -> Dict[str, Any]:
-    """Get a specific item by ID from Business Central."""
-    logger.info(f"Tool 'get_record_by_id' called for resource={resource}, item_id={item_id}")
+@mcp.tool(name="get_record_by_id", description="Get a specific record by its unique identifier with optional expansion and field selection.")
+async def get_item_by_id_tool(
+    resource: Annotated[str, Field(description="The Business Central resource name (e.g., 'customers', 'items', 'salesOrders')")],
+    item_id: Annotated[str, Field(description="The unique identifier of the record (UUID format or entity-specific ID)")],
+    expand: Annotated[Optional[str], Field(description="Related entities to include (e.g., 'salesOrderLines' or 'customer,defaultDimensions')")] = None,
+    select: Annotated[Optional[str], Field(description="Specific fields to return (e.g., 'id,displayName,email' or 'id,amount')")] = None,
+    company_id: Annotated[Optional[str], Field(description="Optional company ID. If not provided, uses the active company")] = None
+) -> Dict[str, Any]:
+    """Get a specific item by ID from Business Central with optional expansion and field selection."""
+    logger.info(f"Tool 'get_record_by_id' called for resource={resource}, item_id={item_id}, expand={expand}, select={select}")
     
     try:
         resource = validate_resource_name(resource)
@@ -238,11 +425,26 @@ async def get_item_by_id_tool(resource: str, item_id: str,
         if not company_id:
             company_id = await company_manager.get_active_company_id()
         
-        result = await api_client.request("GET", resource, item_id=item_id, company_id=company_id)
+        # Build OData parameters
+        params = {}
+        if expand is not None:
+            params['$expand'] = expand
+        if select is not None:
+            params['$select'] = select
+        
+        logger.debug(f"OData parameters for get_record_by_id: {params}")
+        
+        result = await api_client.request("GET", resource, item_id=item_id, params=params, company_id=company_id)
         
         # Add metadata
         if isinstance(result, dict):
-            result['_metadata'] = {"company_id": company_id}
+            result['_metadata'] = {
+                "company_id": company_id,
+                "request_params": {
+                    "expand": expand,
+                    "select": select
+                }
+            }
         
         response = APIResponse.success_response(result)
         return response.to_dict()

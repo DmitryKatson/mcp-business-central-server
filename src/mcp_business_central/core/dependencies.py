@@ -13,17 +13,22 @@ from ..auth import BCAuthManager
 from ..api import BCAPIClient
 from .company_manager import CompanyManager
 
-# Initialize logging
-setup_logging()
-logger = get_logger(__name__)
-
-# Load configuration
+# Load configuration silently during import (MCP protocol requirement)
 try:
     config = BCServerConfig.from_environment()
-    logger.info("Configuration loaded successfully")
 except Exception as e:
-    logger.error(f"Failed to load configuration: {e}")
     raise
+
+# Initialize logging with MCP-safe configuration
+setup_logging()
+
+# Enable verbose logging if requested via environment variable
+import os
+if os.getenv('MCP_VERBOSE', '').lower() == 'true':
+    from ..config.logging import enable_verbose_logging
+    enable_verbose_logging()
+
+logger = get_logger(__name__)
 
 # Initialize components
 auth_manager = BCAuthManager(config)
