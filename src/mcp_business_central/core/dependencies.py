@@ -37,7 +37,7 @@ company_manager = CompanyManager(api_client)
 
 # Initialize MCP server
 mcp = FastMCP(
-    name="business-central-mcp-server",
+    name="mcp-business-central-server",
     instructions=(
         "This server provides tools to interact with Microsoft Dynamics 365 Business Central. "
         "Companies are auto-discovered and the server supports multi-tenant operations with "
