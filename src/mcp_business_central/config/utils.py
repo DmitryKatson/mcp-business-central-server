@@ -176,3 +176,34 @@ def sanitize_log_data(data: Any, max_length: int = 1000) -> str:
         data_str = data_str[:max_length] + "..."
     
     return data_str
+
+
+def convert_to_int(value, param_name, allow_negative=False):
+    """
+    Convert a value to integer, handling both string and integer inputs.
+    
+    Args:
+        value: Value to convert (int, str, or None)
+        param_name: Name of the parameter for error messages
+        allow_negative: Whether to allow negative values (default: False)
+    
+    Returns:
+        int or None: Converted integer value or None if input was None
+    
+    Raises:
+        ValidationError: If value cannot be converted to valid integer
+    """
+    from .exceptions import ValidationError
+    
+    if value is None:
+        return None
+    
+    try:
+        int_value = int(value)
+        if not allow_negative and int_value < 0:
+            raise ValidationError(f"'{param_name}' parameter must be non-negative, got {int_value}")
+        return int_value
+    except (ValueError, TypeError):
+        raise ValidationError(f"Invalid '{param_name}' parameter: must be a valid integer, got {value}")
+
+

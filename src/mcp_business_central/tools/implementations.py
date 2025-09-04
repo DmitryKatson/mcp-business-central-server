@@ -11,7 +11,7 @@ from pydantic import Field
 from ..core.dependencies import mcp, logger, api_client, company_manager
 from ..config.exceptions import ValidationError, APIError, CompanyNotFoundError
 from ..models import APIResponse, SchemaInfo
-from ..config.utils import validate_resource_name, validate_field_name, build_odata_filter
+from ..config.utils import validate_resource_name, validate_field_name, build_odata_filter, convert_to_int
 from ..config.metadata import (
     parse_metadata_xml, get_metadata_summary, search_entities, 
     search_enums, search_properties, search_relationships
@@ -46,7 +46,7 @@ async def discover_companies_tool() -> Dict[str, Any]:
 
 @mcp.tool(name="set_active_company", description="Set the active company for subsequent Business Central operations.")
 async def set_company_tool(
-    company_id: Annotated[str, Field(description="The unique identifier of the company to set as active (UUID format)")],
+    company_id: Annotated[str, Field(description="Unique identifier of the company to set as active. UUID format (e.g., '12345678-1234-1234-1234-123456789abc'). Use list_companies to discover available company IDs.")],
 ) -> Dict[str, Any]:
     """Set the active company for Business Central operations."""
     logger.info(f"Tool 'set_active_company' called with company_id={company_id}")
@@ -248,8 +248,8 @@ async def get_odata_metadata_tool(
 
 @mcp.tool(name="get_resource_schema", description="Get schema information and available fields for a Business Central resource.")
 async def get_schema_tool(
-    resource: Annotated[str, Field(description="The Business Central resource name (e.g., 'customers', 'items', 'salesOrders')")],
-    company_id: Annotated[Optional[str], Field(description="Optional company ID. If not provided, uses the active company")] = None
+    resource: Annotated[str, Field(description="Business Central entity/resource name. Case-sensitive. Common entities: 'customers', 'items', 'salesOrders', 'vendors', 'employees'. Use list_resources to discover all available entities.")],
+    company_id: Annotated[Optional[str], Field(description="Optional company ID (UUID format). If not provided, uses the currently active company. Use list_companies to discover available companies.")] = None
 ) -> Dict[str, Any]:
     """Get schema information for a Business Central resource."""
     logger.info(f"Tool 'get_resource_schema' called for resource={resource}")
@@ -305,14 +305,14 @@ async def get_schema_tool(
 
 @mcp.tool(name="list_records", description="List records from a Business Central resource with optional filtering, ordering, expansion, selection, and pagination.")
 async def list_items_tool(
-    resource: Annotated[str, Field(description="The Business Central resource name (e.g., 'customers', 'items', 'salesOrders')")],
-    filter: Annotated[Optional[str], Field(description="OData filter (e.g., city eq 'Seattle', amount gt 1000). Use guid'...' for GUIDs (e.g., customerId ne guid'00000000-0000-0000-0000-000000000000'). 'or' across different fields isn't supported—split queries. 'in' isn't supported—use multiple eq (same field) or separate calls.")] = None,
-    top: Annotated[Optional[int], Field(description="Maximum number of records to return (e.g., 50)")] = None,
-    skip: Annotated[Optional[int], Field(description="Number of records to skip for pagination (e.g., 100)")] = None,
-    orderby: Annotated[Optional[str], Field(description="OData orderby expression (e.g., 'displayName asc' or 'createdDate desc')")] = None,
-    expand: Annotated[Optional[str], Field(description="Related entities to include (e.g., 'salesOrderLines' or 'customer,defaultDimensions')")] = None,
-    select: Annotated[Optional[str], Field(description="Specific fields to return (e.g., 'id,displayName,email' or 'id,amount')")] = None,
-    company_id: Annotated[Optional[str], Field(description="Optional company ID. If not provided, uses the active company")] = None
+    resource: Annotated[str, Field(description="Business Central entity/resource name. Case-sensitive. Common entities: 'customers', 'items', 'salesOrders', 'vendors', 'employees'. Use list_resources to discover all available entities.")],
+    filter: Annotated[Optional[str], Field(description="OData V4.0 $filter syntax to restrict returned entities. Operators: eq, ne, gt, ge, lt, le, or, and, not. Alert: Business Central's OData API doesn't support the OR operator across different fields in a single filter (make separate queries if needed). Use guid'value' for GUIDs. Examples: \"city eq 'Seattle'\", \"amount gt 1000 and status eq 'Active'\", \"city eq 'Seattle' or city eq 'Portland'\"")] = None,
+    top: Annotated[Optional[Union[int, str]], Field(description="Maximum records to return. Default/recommended: 20. Use with skip for pagination. Example: 50")] = None,
+    skip: Annotated[Optional[Union[int, str]], Field(description="Number of records to skip before returning results. Use with top for pagination. Example: 100")] = None,
+    orderby: Annotated[Optional[str], Field(description="OData V4.0 $orderby syntax (e.g., 'displayName asc', 'createdDate desc', 'property1 desc, property2 asc'). Sorts results by specified properties.")] = None,
+    expand: Annotated[Optional[str], Field(description="OData V4.0 $expand to include related entities in response. Comma-separated list (e.g., 'salesOrderLines', 'customer,defaultDimensions'). Use get_resource_schema to discover available navigation properties.")] = None,
+    select: Annotated[Optional[str], Field(description="OData V4.0 $select - comma-separated list of properties to include in response (e.g., 'id,displayName,email'). Returns all properties if not specified. Use get_resource_schema to discover available properties.")] = None,
+    company_id: Annotated[Optional[str], Field(description="Optional company ID (UUID format). If not provided, uses the currently active company. Use list_companies to discover available companies.")] = None
 ) -> Dict[str, Any]:
     """List items from a Business Central resource with full OData query support."""
     logger.info(f"Tool 'list_records' called for resource={resource}, filter={filter}, top={top}, skip={skip}, orderby={orderby}, expand={expand}, select={select}")
@@ -324,14 +324,18 @@ async def list_items_tool(
         if not company_id:
             company_id = await company_manager.get_active_company_id()
         
+        # Convert string parameters to integers if needed
+        top_int = convert_to_int(top, 'top')
+        skip_int = convert_to_int(skip, 'skip')
+        
         # Build OData parameters dictionary
         params = {}
         if filter is not None:
             params['$filter'] = filter
-        if top is not None:
-            params['$top'] = top
-        if skip is not None:
-            params['$skip'] = skip
+        if top_int is not None:
+            params['$top'] = top_int
+        if skip_int is not None:
+            params['$skip'] = skip_int
         if orderby is not None:
             params['$orderby'] = orderby
         if expand is not None:
@@ -350,8 +354,8 @@ async def list_items_tool(
                 "request_params": {
                     "resource": resource,
                     "filter": filter,
-                    "top": top,
-                    "skip": skip,
+                    "top": top_int,
+                    "skip": skip_int,
                     "orderby": orderby,
                     "expand": expand,
                     "select": select
@@ -373,14 +377,14 @@ async def list_items_tool(
 
 @mcp.tool(name="find_records_by_field", description="Find records where a specific field matches a given value with optional ordering, expansion, and selection.")
 async def get_items_by_field_tool(
-    resource: Annotated[str, Field(description="The Business Central resource name (e.g., 'customers', 'items', 'salesOrders')")],
-    field: Annotated[str, Field(description="The field name to search by (e.g., 'city', 'displayName', 'email')")],
-    value: Annotated[str, Field(description="The value to search for (will be automatically quoted for string comparison)")],
-    orderby: Annotated[Optional[str], Field(description="OData orderby expression (e.g., 'displayName asc' or 'createdDate desc')")] = None,
-    expand: Annotated[Optional[str], Field(description="Related entities to include (e.g., 'salesOrderLines' or 'customer,defaultDimensions')")] = None,
-    select: Annotated[Optional[str], Field(description="Specific fields to return (e.g., 'id,displayName,email' or 'id,amount')")] = None,
-    top: Annotated[Optional[int], Field(description="Maximum number of records to return (e.g., 50)")] = None,
-    company_id: Annotated[Optional[str], Field(description="Optional company ID. If not provided, uses the active company")] = None
+    resource: Annotated[str, Field(description="Business Central entity/resource name. Case-sensitive. Common entities: 'customers', 'items', 'salesOrders', 'vendors', 'employees'. Use list_resources to discover all available entities.")],
+    field: Annotated[str, Field(description="Property/field name to search by. Case-sensitive. Common fields: 'displayName', 'city', 'email', 'number'. Use get_resource_schema to discover available properties for the entity.")],
+    value: Annotated[str, Field(description="Value to search for. Will be automatically quoted for string comparison and formatted appropriately for the field type.")],
+    orderby: Annotated[Optional[str], Field(description="OData V4.0 $orderby syntax (e.g., 'displayName asc', 'createdDate desc', 'property1 desc, property2 asc'). Sorts results by specified properties.")] = None,
+    expand: Annotated[Optional[str], Field(description="OData V4.0 $expand to include related entities in response. Comma-separated list (e.g., 'salesOrderLines', 'customer,defaultDimensions'). Use get_resource_schema to discover available navigation properties.")] = None,
+    select: Annotated[Optional[str], Field(description="OData V4.0 $select - comma-separated list of properties to include in response (e.g., 'id,displayName,email'). Returns all properties if not specified. Use get_resource_schema to discover available properties.")] = None,
+    top: Annotated[Optional[Union[int, str]], Field(description="Maximum records to return. Default/recommended: 20. Use with skip for pagination. Example: 50")] = None,
+    company_id: Annotated[Optional[str], Field(description="Optional company ID (UUID format). If not provided, uses the currently active company. Use list_companies to discover available companies.")] = None
 ) -> Dict[str, Any]:
     """Get items from Business Central by field value with full OData query support."""
     logger.info(f"Tool 'find_records_by_field' called for resource={resource}, field={field}, value={value}, orderby={orderby}, expand={expand}, select={select}, top={top}")
@@ -393,13 +397,16 @@ async def get_items_by_field_tool(
         if value is None:
             raise ValidationError("Value cannot be None")
         
+        # Convert pagination parameters
+        top_int = convert_to_int(top, 'top')
+        
         # Build OData filter using utility function
         filter_expr = build_odata_filter(field, value)
         
         logger.debug(f"Built filter expression: {filter_expr}")
         
         return await list_items_tool(resource, filter=filter_expr, orderby=orderby, 
-                                   expand=expand, select=select, top=top, company_id=company_id)
+                                   expand=expand, select=select, top=top_int, company_id=company_id)
         
     except ValidationError as e:
         logger.error(f"Validation error in find_records_by_field: {e}")
@@ -410,11 +417,11 @@ async def get_items_by_field_tool(
 
 @mcp.tool(name="get_record_by_id", description="Get a specific record by its unique identifier with optional expansion and field selection.")
 async def get_item_by_id_tool(
-    resource: Annotated[str, Field(description="The Business Central resource name (e.g., 'customers', 'items', 'salesOrders')")],
-    item_id: Annotated[str, Field(description="The unique identifier of the record (UUID format or entity-specific ID)")],
-    expand: Annotated[Optional[str], Field(description="Related entities to include (e.g., 'salesOrderLines' or 'customer,defaultDimensions')")] = None,
-    select: Annotated[Optional[str], Field(description="Specific fields to return (e.g., 'id,displayName,email' or 'id,amount')")] = None,
-    company_id: Annotated[Optional[str], Field(description="Optional company ID. If not provided, uses the active company")] = None
+    resource: Annotated[str, Field(description="Business Central entity/resource name. Case-sensitive. Common entities: 'customers', 'items', 'salesOrders', 'vendors', 'employees'. Use list_resources to discover all available entities.")],
+    item_id: Annotated[str, Field(description="Unique identifier of the record. Usually UUID format (e.g., '12345678-1234-1234-1234-123456789abc') or entity-specific identifier.")],
+    expand: Annotated[Optional[str], Field(description="OData V4.0 $expand to include related entities in response. Comma-separated list (e.g., 'salesOrderLines', 'customer,defaultDimensions'). Use get_resource_schema to discover available navigation properties.")] = None,
+    select: Annotated[Optional[str], Field(description="OData V4.0 $select - comma-separated list of properties to include in response (e.g., 'id,displayName,email'). Returns all properties if not specified. Use get_resource_schema to discover available properties.")] = None,
+    company_id: Annotated[Optional[str], Field(description="Optional company ID (UUID format). If not provided, uses the currently active company. Use list_companies to discover available companies.")] = None
 ) -> Dict[str, Any]:
     """Get a specific item by ID from Business Central with optional expansion and field selection."""
     logger.info(f"Tool 'get_record_by_id' called for resource={resource}, item_id={item_id}, expand={expand}, select={select}")
