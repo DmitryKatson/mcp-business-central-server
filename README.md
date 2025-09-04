@@ -13,22 +13,22 @@ A professional MCP Server for Microsoft Dynamics 365 Business Central with OAuth
 - ⚡ **API v2.0** - Latest Business Central endpoints
 - 🧩 **Clean Architecture** - Professional, scalable design
 
-## Quick Start
-
-### 1. Install
+## Installation
 
 ```bash
 pip install mcp-business-central
 ```
 
-### 2. Azure AD Setup
+## Quick Start
+
+### 1. Azure AD Setup
 
 1. Create Azure AD app registration
 2. Add Business Central API permissions (`Financials.ReadWrite.All`)
 3. Create client secret
 4. Grant admin consent
 
-### 3. Environment Variables
+### 2. Environment Variables
 
 ```bash
 BC_TENANT_ID=your-tenant-id
@@ -37,7 +37,7 @@ BC_CLIENT_SECRET=your-client-secret
 BC_ENVIRONMENT=production
 ```
 
-### 4. Claude Desktop Integration
+### 3. Claude Desktop Integration
 
 ```json
 {
