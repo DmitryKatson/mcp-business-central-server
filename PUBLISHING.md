@@ -26,8 +26,9 @@ git commit -m "Prepare for release v1.0.1"
 ### 2. Build Package
 
 ```bash
-# Clean previous builds
-rm -rf dist/ build/ *.egg-info/
+# Clean previous builds (if they exist)
+rm -rf dist/ build/
+find . -name "*.egg-info" -type d -exec rm -rf {} + 2>/dev/null || true
 
 # Build distribution packages
 python -m build
@@ -57,8 +58,8 @@ twine upload dist/*
 ### 5. Tag Release
 
 ```bash
-git tag v1.0.1
-git push origin v1.0.1
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
 ## Automated Publishing (GitHub Actions)
