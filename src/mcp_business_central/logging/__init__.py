@@ -6,10 +6,36 @@ for the Business Central MCP server.
 """
 
 import logging
+import os
 import sys
+from dataclasses import dataclass
 from typing import Optional
 
-from ..api.config import LoggingConfig
+
+@dataclass(frozen=True)
+class LoggingConfig:
+  """Logging configuration."""
+
+  level: str = "INFO"
+  format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  log_file: Optional[str] = None
+
+  @classmethod
+  def from_environment(cls) -> "LoggingConfig":
+    """
+    Load logging configuration from environment variables.
+
+    Environment variables:
+    - LOG_LEVEL: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    - LOG_FORMAT: Custom log format string
+    - LOG_FILE: Path to log file (optional, enables file logging)
+    - MCP_VERBOSE: Set to 'true' to show INFO logs in Cursor (shows as [error])
+    """
+    # Avoid dotenv import to keep logging lightweight and independent
+    level = os.getenv("LOG_LEVEL", "INFO")
+    log_format = os.getenv("LOG_FORMAT", cls.format)
+    log_file = os.getenv("LOG_FILE")
+    return cls(level=level, format=log_format, log_file=log_file)
 
 
 def setup_logging(config: Optional[LoggingConfig] = None) -> None:

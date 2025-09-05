@@ -11,12 +11,12 @@ from pydantic import Field
 from mcp.server.fastmcp import Context
 from ..server import mcp, logger, get_request_clients
 from ..logging.exceptions import ValidationError, APIError, CompanyNotFoundError
-from ..api.responses import APIResponse
-from ..api.models import SchemaInfo
+from ..api.http_client import APIResponse
+from ..api.entities import SchemaInfo
 from ..utils import validate_resource_name, validate_field_name, build_odata_filter, convert_to_int
-from ..api.metadata import (
-    parse_metadata_xml, get_metadata_summary, search_entities, 
-    search_enums, search_properties, search_relationships
+from ..api.odata import (
+    parse_metadata_xml, get_metadata_summary, search_entities,
+    search_enums, search_properties, search_relationships,
 )
 
 @mcp.tool(name="list_companies", description="List all available companies in the Business Central environment.")

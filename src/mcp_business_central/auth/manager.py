@@ -130,7 +130,7 @@ def build_clients_from_headers(headers: Mapping[str, str]) -> Optional[Tuple[Any
     """
     # Import here to avoid circular imports
     from ..api import BCAPIClient
-    from ..api.company_manager import CompanyManager
+    from ..api.companies import CompanyManager
     
     h = _lower_headers(headers or {})
 

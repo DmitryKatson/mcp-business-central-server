@@ -117,29 +117,4 @@ def get_default_config():
     return _config
 
 
-@dataclass(frozen=True)
-class LoggingConfig:
-    """Logging configuration."""
-    
-    level: str = "INFO"
-    format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    log_file: Optional[str] = None
-    
-    @classmethod
-    def from_environment(cls) -> 'LoggingConfig':
-        """
-        Load logging configuration from environment variables.
-        
-        Environment variables:
-        - LOG_LEVEL: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        - LOG_FORMAT: Custom log format string
-        - LOG_FILE: Path to log file (optional, enables file logging)
-        - MCP_VERBOSE: Set to 'true' to show INFO logs in Cursor (shows as [error])
-        """
-        load_dotenv()
-        
-        return cls(
-            level=os.getenv('LOG_LEVEL', 'INFO'),
-            format=os.getenv('LOG_FORMAT', cls.format),
-            log_file=os.getenv('LOG_FILE')
-        )
+## LoggingConfig moved to mcp_business_central.logging to avoid circular imports

@@ -9,11 +9,9 @@ from typing import Any, Dict, List, Optional, Union
 import aiohttp
 
 import logging
-from ..auth import BCAuthManager
 from .config import BCServerConfig
 from ..logging.exceptions import APIError, AuthenticationError
-from .models import Company
-from .responses import APIResponse
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +19,7 @@ logger = logging.getLogger(__name__)
 class BCAPIClient:
     """Business Central API client for making authenticated requests."""
     
-    def __init__(self, config: BCServerConfig, auth_manager: BCAuthManager) -> None:
+    def __init__(self, config: BCServerConfig, auth_manager: Any) -> None:
         """Initialize the API client."""
         self.config = config
         self.auth_manager = auth_manager
@@ -183,12 +181,12 @@ class BCAPIClient:
             logger.error(f"Request error: {e}")
             raise APIError(f"Request failed: {str(e)}") from e
     
-    async def discover_companies(self) -> List[Company]:
+    async def discover_companies(self) -> List[Dict[str, Any]]:
         """
         Discover available companies in the Business Central environment.
         
         Returns:
-            List of Company objects
+            List of raw company dictionaries as returned by the API
             
         Raises:
             APIError: If company discovery fails
@@ -198,16 +196,54 @@ class BCAPIClient:
         try:
             result = await self.request("GET", "companies")
             companies_data = result.get('value', [])
-            
-            companies = [Company.from_api_response(company_data) 
-                        for company_data in companies_data]
-            
-            logger.info(f"Discovered {len(companies)} companies")
-            for company in companies:
-                logger.debug(f"  - {company.name} (ID: {company.id})")
-            
-            return companies
+            logger.info(f"Discovered {len(companies_data)} companies")
+            return companies_data
             
         except Exception as e:
             logger.error(f"Error discovering companies: {e}")
             raise APIError(f"Company discovery failed: {str(e)}") from e
+
+
+@dataclass
+class APIResponse:
+    """Standard API response structure."""
+    
+    success: bool
+    data: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    count: Optional[int] = None
+    
+    @classmethod
+    def success_response(cls, data: Any, count: Optional[int] = None) -> 'APIResponse':
+        """Create a successful response."""
+        if isinstance(data, dict) and 'value' in data:
+            actual_count = len(data['value']) if count is None else count
+        else:
+            actual_count = 1 if count is None else count
+            
+        return cls(
+            success=True,
+            data=data if isinstance(data, dict) else {'result': data},
+            count=actual_count
+        )
+    
+    @classmethod
+    def error_response(cls, error_message: str) -> 'APIResponse':
+        """Create an error response."""
+        return cls(
+            success=False,
+            error=error_message
+        )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert response to dictionary."""
+        result = {'success': self.success}
+        
+        if self.data is not None:
+            result['data'] = self.data
+        if self.error is not None:
+            result['error'] = self.error
+        if self.count is not None:
+            result['count'] = self.count
+            
+        return result

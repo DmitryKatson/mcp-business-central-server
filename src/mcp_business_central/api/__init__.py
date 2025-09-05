@@ -9,12 +9,13 @@ This module provides everything needed to work with Business Central APIs:
 - OData metadata parsing
 """
 
-from .client import BCAPIClient
-from .company_manager import CompanyManager
-from .config import BCServerConfig, LoggingConfig, build_business_central_url
-from .models import Company, Resource, SchemaInfo
-from .responses import APIResponse
-from . import metadata
+from .http_client import BCAPIClient
+from .companies import CompanyManager
+from .config import BCServerConfig, build_business_central_url
+from .entities import SchemaInfo
+from .companies import Company
+from .http_client import APIResponse
+from . import odata
 
 # Lazy API component singletons
 _api_client = None
@@ -40,11 +41,11 @@ __all__ = [
     # Core API classes
     "BCAPIClient", "CompanyManager",
     # Configuration
-    "BCServerConfig", "LoggingConfig", "build_business_central_url", 
+    "BCServerConfig", "build_business_central_url", 
     # Models
-    "Company", "Resource", "SchemaInfo", "APIResponse",
+    "Company", "SchemaInfo", "APIResponse",
     # Factory functions
     "get_default_api_client", "get_default_company_manager",
     # Modules
-    "metadata"
+    "odata"
 ]

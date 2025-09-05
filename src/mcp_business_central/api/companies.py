@@ -6,10 +6,29 @@ for Business Central operations.
 """
 
 import logging
-from typing import List, Optional
-from .client import BCAPIClient
+from typing import List, Optional, Any, Dict
+from dataclasses import dataclass
+from .http_client import BCAPIClient
 from ..logging.exceptions import CompanyNotFoundError
-from .models import Company
+
+@dataclass
+class Company:
+  """Represents a Business Central company."""
+
+  id: str
+  name: str
+  display_name: Optional[str] = None
+  business_profile_id: Optional[str] = None
+
+  @classmethod
+  def from_api_response(cls, data: Dict[str, Any]) -> 'Company':
+    """Create a Company instance from API response data."""
+    return cls(
+      id=data.get('id', ''),
+      name=data.get('name', ''),
+      display_name=data.get('displayName'),
+      business_profile_id=data.get('businessProfileId'),
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +53,8 @@ class CompanyManager:
             List of available companies
         """
         if self._companies_cache is None or refresh_cache:
-            self._companies_cache = await self.api_client.discover_companies()
+            raw = await self.api_client.discover_companies()
+            self._companies_cache = [Company.from_api_response(item) for item in raw]
         
         return self._companies_cache
     
