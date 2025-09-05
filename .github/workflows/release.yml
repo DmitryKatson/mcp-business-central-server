@@ -8,6 +8,9 @@ on:
 jobs:
   publish-to-pypi:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
     
     steps:
     - uses: actions/checkout@v4
@@ -32,9 +35,9 @@ jobs:
       run: twine upload dist/*
     
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         files: dist/*
         generate_release_notes: true
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
+        draft: false
+        prerelease: false
