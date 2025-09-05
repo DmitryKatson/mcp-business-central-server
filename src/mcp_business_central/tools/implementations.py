@@ -8,7 +8,8 @@ Microsoft Dynamics 365 Business Central APIs.
 from typing import Dict, Any, Optional, Union, Annotated
 from pydantic import Field
 
-from ..core.dependencies import mcp, logger, get_api_client, get_company_manager
+from mcp.server.fastmcp import Context
+from ..core.dependencies import mcp, logger, get_api_client, get_company_manager, get_request_clients
 from ..config.exceptions import ValidationError, APIError, CompanyNotFoundError
 from ..models import APIResponse, SchemaInfo
 from ..config.utils import validate_resource_name, validate_field_name, build_odata_filter, convert_to_int
@@ -18,12 +19,13 @@ from ..config.metadata import (
 )
 
 @mcp.tool(name="list_companies", description="List all available companies in the Business Central environment.")
-async def discover_companies_tool() -> Dict[str, Any]:
+async def discover_companies_tool(ctx: Optional[Context] = None) -> Dict[str, Any]:
     """Discover all available companies in Business Central."""
     logger.info("Tool 'list_companies' called")
     
     try:
-        companies = await get_company_manager().discover_companies()
+        api, companies_mgr = get_request_clients(ctx)
+        companies = await companies_mgr.discover_companies()
         companies_data = [
             {
                 "id": company.id,
@@ -47,12 +49,14 @@ async def discover_companies_tool() -> Dict[str, Any]:
 @mcp.tool(name="set_active_company", description="Set the active company for subsequent Business Central operations.")
 async def set_company_tool(
     company_id: Annotated[str, Field(description="Unique identifier of the company to set as active. UUID format (e.g., '12345678-1234-1234-1234-123456789abc'). Use list_companies to discover available company IDs.")],
+    ctx: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """Set the active company for Business Central operations."""
     logger.info(f"Tool 'set_active_company' called with company_id={company_id}")
     
     try:
-        company = await get_company_manager().set_active_company(company_id)
+        api, companies_mgr = get_request_clients(ctx)
+        company = await companies_mgr.set_active_company(company_id)
         response = APIResponse.success_response({
                     "company_id": company_id,
             "company_name": company.name,
@@ -68,12 +72,13 @@ async def set_company_tool(
         return APIResponse.error_response(str(e)).to_dict()
 
 @mcp.tool(name="get_active_company", description="Get information about the currently active company.")
-async def get_active_company_tool() -> Dict[str, Any]:
+async def get_active_company_tool(ctx: Optional[Context] = None) -> Dict[str, Any]:
     """Get the currently active company information."""
     logger.info("Tool 'get_active_company' called")
     
     try:
-        company = await get_company_manager().get_active_company()
+        api, companies_mgr = get_request_clients(ctx)
+        company = await companies_mgr.get_active_company()
         if not company:
             return APIResponse.error_response("No active company set").to_dict()
         
@@ -95,14 +100,15 @@ async def get_active_company_tool() -> Dict[str, Any]:
 
 
 @mcp.tool(name="list_resources", description="List all available Business Central resources in the current environment.")
-async def list_resources_tool() -> Dict[str, Any]:
+async def list_resources_tool(ctx: Optional[Context] = None) -> Dict[str, Any]:
     """List all available Business Central resources using native API discovery."""
     logger.info("Tool 'list_resources' called")
     
     try:
         # Step 1: Resource discovery using global endpoint (no company needed)
         logger.info("Discovering all available resources...")
-        result = await get_api_client().request("GET", "", company_id=None)  # No company context needed
+        api, _ = get_request_clients(ctx)
+        result = await api.request("GET", "", company_id=None)  # No company context needed
         
         all_resources = []
         if isinstance(result, dict) and 'value' in result:
@@ -156,7 +162,8 @@ async def get_odata_metadata_tool(
     search: Annotated[Optional[str], Field(description="Search term to filter metadata (entity name, property, enum, etc.). If not provided, returns summary of all entities") ] = None,
     search_type: Annotated[Optional[str], Field(description="Type of metadata to search: 'entity', 'property', 'relationship', 'enum', 'all'") ] = "all",
     include_properties: Annotated[Optional[bool], Field(description="Include detailed property information for found entities")] = True,
-    include_relationships: Annotated[Optional[bool], Field(description="Include navigation properties/relationships for found entities")] = True
+    include_relationships: Annotated[Optional[bool], Field(description="Include navigation properties/relationships for found entities")] = True,
+    ctx: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """Search and retrieve specific OData metadata information."""
     logger.info(f"Tool 'get_odata_metadata' called with search='{search}', search_type='{search_type}'")
@@ -164,13 +171,13 @@ async def get_odata_metadata_tool(
     try:
         # Import aiohttp for direct HTTP requests
         import aiohttp
-        from ..core.dependencies import config, auth_manager
         
-        # Get authentication token
-        token = await auth_manager.get_access_token()
+        # Resolve per-request API client (header or env fallback)
+        api, _ = get_request_clients(ctx)
         
-        # Build the metadata URL
-        base_url = f"https://api.businesscentral.dynamics.com/v2.0/{config.tenant_id}/{config.environment}/api/v2.0"
+        # Get authentication token and base URL from the resolved client
+        token = await api.auth_manager.get_access_token()
+        base_url = api.config.base_url
         metadata_url = f"{base_url}/$metadata"
         
         # Make direct HTTP request for XML content
@@ -249,7 +256,8 @@ async def get_odata_metadata_tool(
 @mcp.tool(name="get_resource_schema", description="Get schema information and available fields for a Business Central resource.")
 async def get_schema_tool(
     resource: Annotated[str, Field(description="Business Central entity/resource name. Case-sensitive. Common entities: 'customers', 'items', 'salesOrders', 'vendors', 'employees'. Use list_resources to discover all available entities.")],
-    company_id: Annotated[Optional[str], Field(description="Optional company ID (UUID format). If not provided, uses the currently active company. Use list_companies to discover available companies.")] = None
+    company_id: Annotated[Optional[str], Field(description="Optional company ID (UUID format). If not provided, uses the currently active company. Use list_companies to discover available companies.")] = None,
+    ctx: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """Get schema information for a Business Central resource."""
     logger.info(f"Tool 'get_resource_schema' called for resource={resource}")
@@ -259,12 +267,14 @@ async def get_schema_tool(
         resource = validate_resource_name(resource)
         
         if not company_id:
-            company_id = await get_company_manager().get_active_company_id()
+            _, companies_mgr = get_request_clients(ctx)
+            company_id = await companies_mgr.get_active_company_id()
         
         logger.info(f"Getting schema for resource: {resource}")
         
         # Get a sample record to determine schema
-        result = await get_api_client().request("GET", resource, params={'$top': 1}, company_id=company_id)
+        api, _ = get_request_clients(ctx)
+        result = await api.request("GET", resource, params={'$top': 1}, company_id=company_id)
         
         fields = []
         sample_item = {}
@@ -312,7 +322,8 @@ async def list_items_tool(
     orderby: Annotated[Optional[str], Field(description="OData V4.0 $orderby syntax (e.g., 'displayName asc', 'createdDate desc', 'property1 desc, property2 asc'). Sorts results by specified properties.")] = None,
     expand: Annotated[Optional[str], Field(description="OData V4.0 $expand to include related entities in response. Comma-separated list (e.g., 'salesOrderLines', 'customer,defaultDimensions'). Use get_resource_schema to discover available navigation properties.")] = None,
     select: Annotated[Optional[str], Field(description="OData V4.0 $select - comma-separated list of properties to include in response (e.g., 'id,displayName,email'). Returns all properties if not specified. Use get_resource_schema to discover available properties.")] = None,
-    company_id: Annotated[Optional[str], Field(description="Optional company ID (UUID format). If not provided, uses the currently active company. Use list_companies to discover available companies.")] = None
+    company_id: Annotated[Optional[str], Field(description="Optional company ID (UUID format). If not provided, uses the currently active company. Use list_companies to discover available companies.")] = None,
+    ctx: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """List items from a Business Central resource with full OData query support."""
     logger.info(f"Tool 'list_records' called for resource={resource}, filter={filter}, top={top}, skip={skip}, orderby={orderby}, expand={expand}, select={select}")
@@ -322,7 +333,8 @@ async def list_items_tool(
         resource = validate_resource_name(resource)
         
         if not company_id:
-            company_id = await get_company_manager().get_active_company_id()
+            _, companies_mgr = get_request_clients(ctx)
+            company_id = await companies_mgr.get_active_company_id()
         
         # Convert string parameters to integers if needed
         top_int = convert_to_int(top, 'top')
@@ -345,7 +357,8 @@ async def list_items_tool(
         
         logger.debug(f"Final OData request parameters: {params}")
         
-        result = await get_api_client().request("GET", resource, params=params, company_id=company_id)
+        api, _ = get_request_clients(ctx)
+        result = await api.request("GET", resource, params=params, company_id=company_id)
         
         # Add metadata to response
         if isinstance(result, dict) and 'value' in result:
@@ -384,7 +397,8 @@ async def get_items_by_field_tool(
     expand: Annotated[Optional[str], Field(description="OData V4.0 $expand to include related entities in response. Comma-separated list (e.g., 'salesOrderLines', 'customer,defaultDimensions'). Use get_resource_schema to discover available navigation properties.")] = None,
     select: Annotated[Optional[str], Field(description="OData V4.0 $select - comma-separated list of properties to include in response (e.g., 'id,displayName,email'). Returns all properties if not specified. Use get_resource_schema to discover available properties.")] = None,
     top: Annotated[Optional[Union[int, str]], Field(description="Maximum records to return. Default/recommended: 20. Use with skip for pagination. Example: 50")] = None,
-    company_id: Annotated[Optional[str], Field(description="Optional company ID (UUID format). If not provided, uses the currently active company. Use list_companies to discover available companies.")] = None
+    company_id: Annotated[Optional[str], Field(description="Optional company ID (UUID format). If not provided, uses the currently active company. Use list_companies to discover available companies.")] = None,
+    ctx: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """Get items from Business Central by field value with full OData query support."""
     logger.info(f"Tool 'find_records_by_field' called for resource={resource}, field={field}, value={value}, orderby={orderby}, expand={expand}, select={select}, top={top}")
@@ -406,7 +420,7 @@ async def get_items_by_field_tool(
         logger.debug(f"Built filter expression: {filter_expr}")
         
         return await list_items_tool(resource, filter=filter_expr, orderby=orderby, 
-                                   expand=expand, select=select, top=top_int, company_id=company_id)
+                                   expand=expand, select=select, top=top_int, company_id=company_id, ctx=ctx)
         
     except ValidationError as e:
         logger.error(f"Validation error in find_records_by_field: {e}")
@@ -421,7 +435,8 @@ async def get_item_by_id_tool(
     item_id: Annotated[str, Field(description="Unique identifier of the record. Usually UUID format (e.g., '12345678-1234-1234-1234-123456789abc') or entity-specific identifier.")],
     expand: Annotated[Optional[str], Field(description="OData V4.0 $expand to include related entities in response. Comma-separated list (e.g., 'salesOrderLines', 'customer,defaultDimensions'). Use get_resource_schema to discover available navigation properties.")] = None,
     select: Annotated[Optional[str], Field(description="OData V4.0 $select - comma-separated list of properties to include in response (e.g., 'id,displayName,email'). Returns all properties if not specified. Use get_resource_schema to discover available properties.")] = None,
-    company_id: Annotated[Optional[str], Field(description="Optional company ID (UUID format). If not provided, uses the currently active company. Use list_companies to discover available companies.")] = None
+    company_id: Annotated[Optional[str], Field(description="Optional company ID (UUID format). If not provided, uses the currently active company. Use list_companies to discover available companies.")] = None,
+    ctx: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """Get a specific item by ID from Business Central with optional expansion and field selection."""
     logger.info(f"Tool 'get_record_by_id' called for resource={resource}, item_id={item_id}, expand={expand}, select={select}")
@@ -430,7 +445,8 @@ async def get_item_by_id_tool(
         resource = validate_resource_name(resource)
         
         if not company_id:
-            company_id = await get_company_manager().get_active_company_id()
+            _, companies_mgr = get_request_clients(ctx)
+            company_id = await companies_mgr.get_active_company_id()
         
         # Build OData parameters
         params = {}
@@ -441,7 +457,8 @@ async def get_item_by_id_tool(
         
         logger.debug(f"OData parameters for get_record_by_id: {params}")
         
-        result = await get_api_client().request("GET", resource, item_id=item_id, params=params, company_id=company_id)
+        api, _ = get_request_clients(ctx)
+        result = await api.request("GET", resource, item_id=item_id, params=params, company_id=company_id)
         
         # Add metadata
         if isinstance(result, dict):

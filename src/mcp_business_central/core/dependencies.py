@@ -5,7 +5,7 @@ This module provides centralized dependency injection and component
 initialization for the entire application.
 """
 
-from typing import Optional
+from typing import Optional, Tuple, Any, Mapping
 from mcp.server.fastmcp import FastMCP
 
 from ..config import BCServerConfig, LoggingConfig, setup_logging, get_logger
@@ -84,6 +84,89 @@ mcp = FastMCP(
         "professional-grade architecture and comprehensive business data access."
     )
 )
+
+
+# --- Request-scoped auth support (headers-driven) ---
+class BearerAuthManager:
+    """Simple auth manager that returns a pre-provided bearer token."""
+
+    def __init__(self, access_token: str) -> None:
+        self._access_token = access_token
+
+    async def get_access_token(self) -> str:
+        return self._access_token
+
+
+def _lower_headers(headers: Mapping[str, str]) -> Mapping[str, str]:
+    try:
+        return {str(k).lower(): v for k, v in headers.items()}
+    except Exception:
+        return {}
+
+
+def build_clients_from_headers(headers: Mapping[str, str]) -> Optional[Tuple['BCAPIClient', 'CompanyManager']]:
+    """Build API and company managers from HTTP headers if present.
+
+    Supported headers (case-insensitive):
+      - Authorization: Bearer <token>
+      - X-BC-Tenant-Id: Tenant GUID or name (required for base URL)
+      - X-BC-Environment: production|sandbox (default production)
+      - X-BC-Client-Id / X-BC-Client-Secret (for client credentials path)
+    """
+    h = _lower_headers(headers or {})
+
+    tenant_id = h.get('x-bc-tenant-id')
+    environment = h.get('x-bc-environment', 'production')
+    authz = h.get('authorization') or ''
+    client_id = h.get('x-bc-client-id')
+    client_secret = h.get('x-bc-client-secret')
+
+    if not tenant_id:
+        # Cannot construct base_url without tenant
+        return None
+
+    # Construct a minimal config – client credentials optional for bearer path
+    base_url = f"https://api.businesscentral.dynamics.com/v2.0/{tenant_id}/{environment}/api/v2.0"
+    cfg = BCServerConfig(
+        tenant_id=tenant_id,
+        client_id=client_id or "",
+        client_secret=client_secret or "",
+        environment=environment,
+        base_url=base_url,
+    )
+
+    # Prefer bearer token if provided
+    if authz.lower().startswith('bearer '):
+        token = authz.split(' ', 1)[1].strip()
+        auth = BearerAuthManager(token)
+        api = BCAPIClient(cfg, auth)
+        return api, CompanyManager(api)
+
+    # Fall back to client credentials if both present
+    if client_id and client_secret:
+        auth = BCAuthManager(cfg)
+        api = BCAPIClient(cfg, auth)
+        return api, CompanyManager(api)
+
+    return None
+
+
+def get_request_clients(ctx: Any) -> Tuple['BCAPIClient', 'CompanyManager']:
+    """Resolve per-request clients from context headers, or fall back to env-backed singletons."""
+    try:
+        headers: Mapping[str, str] = {}
+        req = getattr(ctx, 'request', None)
+        if req is not None:
+            headers = getattr(req, 'headers', {}) or {}
+        built = build_clients_from_headers(headers)
+        if built is not None:
+            return built
+    except Exception:
+        # Ignore context/header parsing issues and fall back gracefully
+        pass
+
+    # Fallback to env-backed singletons
+    return get_api_client(), get_company_manager()
 
 
 # Legacy function wrappers for backward compatibility
