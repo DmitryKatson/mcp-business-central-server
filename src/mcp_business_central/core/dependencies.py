@@ -5,11 +5,11 @@ This module provides centralized dependency injection and component
 initialization for the entire application.
 """
 
-from typing import Optional, Tuple, Any, Mapping
+from typing import Tuple, Any, Mapping
 from mcp.server.fastmcp import FastMCP
 
-from ..config import BCServerConfig, LoggingConfig, setup_logging, get_logger
-from ..auth import BCAuthManager
+from ..config import BCServerConfig, setup_logging, get_logger
+from ..auth import BCAuthManager, build_clients_from_headers
 from ..api import BCAPIClient
 from .company_manager import CompanyManager
 
@@ -62,19 +62,6 @@ def get_company_manager():
         _company_manager = CompanyManager(get_api_client())
     return _company_manager
 
-# Legacy compatibility - these will be created when first accessed
-def config():
-    return get_config()
-
-def auth_manager():
-    return get_auth_manager()
-
-def api_client():
-    return get_api_client()
-
-def company_manager():
-    return get_company_manager()
-
 # Initialize MCP server
 mcp = FastMCP(
     name="mcp-business-central-server",
@@ -87,68 +74,6 @@ mcp = FastMCP(
 
 
 # --- Request-scoped auth support (headers-driven) ---
-class BearerAuthManager:
-    """Simple auth manager that returns a pre-provided bearer token."""
-
-    def __init__(self, access_token: str) -> None:
-        self._access_token = access_token
-
-    async def get_access_token(self) -> str:
-        return self._access_token
-
-
-def _lower_headers(headers: Mapping[str, str]) -> Mapping[str, str]:
-    try:
-        return {str(k).lower(): v for k, v in headers.items()}
-    except Exception:
-        return {}
-
-
-def build_clients_from_headers(headers: Mapping[str, str]) -> Optional[Tuple['BCAPIClient', 'CompanyManager']]:
-    """Build API and company managers from HTTP headers if present.
-
-    Supported headers (case-insensitive):
-      - Authorization: Bearer <token>
-      - X-BC-Tenant-Id: Tenant GUID or name (required for base URL)
-      - X-BC-Environment: production|sandbox (default production)
-      - X-BC-Client-Id / X-BC-Client-Secret (for client credentials path)
-    """
-    h = _lower_headers(headers or {})
-
-    tenant_id = h.get('x-bc-tenant-id')
-    environment = h.get('x-bc-environment', 'production')
-    authz = h.get('authorization') or ''
-    client_id = h.get('x-bc-client-id')
-    client_secret = h.get('x-bc-client-secret')
-
-    if not tenant_id:
-        # Cannot construct base_url without tenant
-        return None
-
-    # Construct a minimal config – client credentials optional for bearer path
-    base_url = f"https://api.businesscentral.dynamics.com/v2.0/{tenant_id}/{environment}/api/v2.0"
-    cfg = BCServerConfig(
-        tenant_id=tenant_id,
-        client_id=client_id or "",
-        client_secret=client_secret or "",
-        environment=environment,
-        base_url=base_url,
-    )
-
-    # Prefer bearer token if provided
-    if authz.lower().startswith('bearer '):
-        token = authz.split(' ', 1)[1].strip()
-        auth = BearerAuthManager(token)
-        api = BCAPIClient(cfg, auth)
-        return api, CompanyManager(api)
-
-    # Fall back to client credentials if both present
-    if client_id and client_secret:
-        auth = BCAuthManager(cfg)
-        api = BCAPIClient(cfg, auth)
-        return api, CompanyManager(api)
-
-    return None
 
 
 def get_request_clients(ctx: Any) -> Tuple['BCAPIClient', 'CompanyManager']:
@@ -167,59 +92,3 @@ def get_request_clients(ctx: Any) -> Tuple['BCAPIClient', 'CompanyManager']:
 
     # Fallback to env-backed singletons
     return get_api_client(), get_company_manager()
-
-
-# Legacy function wrappers for backward compatibility
-# These will be removed in the future, use the new components directly
-
-async def bc_request(method: str, resource: str, item_id: Optional[str] = None, 
-                    params: Optional[dict] = None, data: Optional[dict] = None,
-                    company_id: Optional[str] = None) -> dict:
-    """Legacy wrapper for API requests - use api_client.request() instead."""
-    from ..config.exceptions import APIError
-    
-    try:
-        if not company_id:
-            company_id = await get_company_manager().get_active_company_id()
-        
-        result = await get_api_client().request(method, resource, item_id, params, data, company_id)
-        return result
-    except APIError as e:
-        return {"error": str(e)}
-    except Exception as e:
-        return {"error": str(e)}
-
-
-async def discover_companies():
-    """Legacy wrapper for company discovery - use company_manager.discover_companies() instead."""
-    try:
-        companies = await get_company_manager().discover_companies()
-        return [{"id": c.id, "name": c.name, "displayName": c.display_name} for c in companies]
-    except Exception:
-        return []
-
-
-async def get_default_company():
-    """Legacy wrapper for default company - use company_manager.get_default_company() instead."""
-    try:
-        company = await get_company_manager().get_default_company()
-        return {"id": company.id, "name": company.name} if company else None
-    except Exception:
-        return None
-
-
-async def set_company(company_id: str) -> bool:
-    """Legacy wrapper for setting company - use company_manager.set_active_company() instead."""
-    try:
-        await get_company_manager().set_active_company(company_id)
-        return True
-    except Exception:
-        return False
-
-
-async def get_active_company_id() -> Optional[str]:
-    """Legacy wrapper for active company ID - use company_manager.get_active_company_id() instead."""
-    try:
-        return await get_company_manager().get_active_company_id()
-    except Exception:
-        return None

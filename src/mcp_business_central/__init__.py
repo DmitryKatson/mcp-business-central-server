@@ -7,7 +7,7 @@ business data access with a professional, scalable architecture.
 """
 
 import asyncio
-from .core import main
+from .__main__ import main
 
 def main_entry():
     """Main entry point for the package."""
