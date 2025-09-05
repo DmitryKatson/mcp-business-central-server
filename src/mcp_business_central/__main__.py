@@ -5,16 +5,12 @@ Starts the MCP server and registers tools.
 """
 
 import os
-import asyncio
 
-from . import server as mcp
+from .server import mcp
 
 
-async def main() -> None:
+def main_entry() -> None:
   try:
-    # Import tools to register them with the MCP server
-    from .tools import mcp_tools  # noqa: F401
-
     # Configure HTTP transport per FastMCP docs
     host = os.getenv("MCP_HOST", "127.0.0.1")
     port_str = os.getenv("MCP_PORT", "8000")
@@ -23,13 +19,10 @@ async def main() -> None:
     except ValueError:
       port = 8000
 
-    await mcp.run_async(transport="http", host=host, port=port)
+    # Use the synchronous run() method with HTTP transport
+    mcp.run(transport="http", host=host, port=port)
   except KeyboardInterrupt:
     pass
-
-
-def main_entry() -> None:
-  asyncio.run(main())
 
 
 if __name__ == "__main__":

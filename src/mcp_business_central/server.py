@@ -6,7 +6,7 @@ All component factories have been moved to their respective semantic modules.
 """
 
 from typing import Tuple, Any, Mapping
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 from .logging import setup_logging, get_logger
 from .auth import build_clients_from_headers, get_default_auth_manager
@@ -74,3 +74,6 @@ try:
     from .tools import mcp_tools  # noqa: F401
 except Exception as _tool_import_error:
     logger.error(f"Failed to register tools: {_tool_import_error}")
+
+# Make the server available for FastMCP CLI
+server = mcp

@@ -8,7 +8,7 @@ Microsoft Dynamics 365 Business Central APIs.
 from typing import Dict, Any, Optional, Union, Annotated
 from pydantic import Field
 
-from mcp.server.fastmcp import Context
+from fastmcp import Context
 from ..server import mcp, logger, get_request_clients
 from ..logging.exceptions import ValidationError, APIError, CompanyNotFoundError
 from ..api.http_client import APIResponse
