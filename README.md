@@ -4,7 +4,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/mcp-business-central.svg)](https://pypi.org/project/mcp-business-central/)
 [![Python Support](https://img.shields.io/pypi/pyversions/mcp-business-central.svg)](https://pypi.org/project/mcp-business-central/)
 
-A professional MCP Server for Microsoft Dynamics 365 Business Central with OAuth2 authentication and API v2.0 endpoints. Built by [Dmitry Katson](https://github.com/DmitryKatson), Microsoft AI & Business Central MVP, enabling AI agents to seamlessly interact with Business Central data.
+A MCP Server for Microsoft Dynamics 365 Business Central with OAuth2 authentication and API v2.0 endpoints. Built by [Dmitry Katson](https://github.com/DmitryKatson), Microsoft AI & Business Central MVP, enabling AI agents to seamlessly interact with Business Central data.
 
 > Please note that this project is actively maintained and may receive updates to enhance functionality and compatibility.
 
