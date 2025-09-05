@@ -8,7 +8,7 @@ Microsoft Dynamics 365 Business Central APIs.
 from typing import Dict, Any, Optional, Union, Annotated
 from pydantic import Field
 
-from ..core.dependencies import mcp, logger, api_client, company_manager
+from ..core.dependencies import mcp, logger, get_api_client, get_company_manager
 from ..config.exceptions import ValidationError, APIError, CompanyNotFoundError
 from ..models import APIResponse, SchemaInfo
 from ..config.utils import validate_resource_name, validate_field_name, build_odata_filter, convert_to_int
@@ -23,7 +23,7 @@ async def discover_companies_tool() -> Dict[str, Any]:
     logger.info("Tool 'list_companies' called")
     
     try:
-        companies = await company_manager.discover_companies()
+        companies = await get_company_manager().discover_companies()
         companies_data = [
             {
                 "id": company.id,
@@ -52,7 +52,7 @@ async def set_company_tool(
     logger.info(f"Tool 'set_active_company' called with company_id={company_id}")
     
     try:
-        company = await company_manager.set_active_company(company_id)
+        company = await get_company_manager().set_active_company(company_id)
         response = APIResponse.success_response({
                     "company_id": company_id,
             "company_name": company.name,
@@ -73,7 +73,7 @@ async def get_active_company_tool() -> Dict[str, Any]:
     logger.info("Tool 'get_active_company' called")
     
     try:
-        company = await company_manager.get_active_company()
+        company = await get_company_manager().get_active_company()
         if not company:
             return APIResponse.error_response("No active company set").to_dict()
         
@@ -102,7 +102,7 @@ async def list_resources_tool() -> Dict[str, Any]:
     try:
         # Step 1: Resource discovery using global endpoint (no company needed)
         logger.info("Discovering all available resources...")
-        result = await api_client.request("GET", "", company_id=None)  # No company context needed
+        result = await get_api_client().request("GET", "", company_id=None)  # No company context needed
         
         all_resources = []
         if isinstance(result, dict) and 'value' in result:
@@ -259,12 +259,12 @@ async def get_schema_tool(
         resource = validate_resource_name(resource)
         
         if not company_id:
-            company_id = await company_manager.get_active_company_id()
+            company_id = await get_company_manager().get_active_company_id()
         
         logger.info(f"Getting schema for resource: {resource}")
         
         # Get a sample record to determine schema
-        result = await api_client.request("GET", resource, params={'$top': 1}, company_id=company_id)
+        result = await get_api_client().request("GET", resource, params={'$top': 1}, company_id=company_id)
         
         fields = []
         sample_item = {}
@@ -322,7 +322,7 @@ async def list_items_tool(
         resource = validate_resource_name(resource)
         
         if not company_id:
-            company_id = await company_manager.get_active_company_id()
+            company_id = await get_company_manager().get_active_company_id()
         
         # Convert string parameters to integers if needed
         top_int = convert_to_int(top, 'top')
@@ -345,7 +345,7 @@ async def list_items_tool(
         
         logger.debug(f"Final OData request parameters: {params}")
         
-        result = await api_client.request("GET", resource, params=params, company_id=company_id)
+        result = await get_api_client().request("GET", resource, params=params, company_id=company_id)
         
         # Add metadata to response
         if isinstance(result, dict) and 'value' in result:
@@ -430,7 +430,7 @@ async def get_item_by_id_tool(
         resource = validate_resource_name(resource)
         
         if not company_id:
-            company_id = await company_manager.get_active_company_id()
+            company_id = await get_company_manager().get_active_company_id()
         
         # Build OData parameters
         params = {}
@@ -441,7 +441,7 @@ async def get_item_by_id_tool(
         
         logger.debug(f"OData parameters for get_record_by_id: {params}")
         
-        result = await api_client.request("GET", resource, item_id=item_id, params=params, company_id=company_id)
+        result = await get_api_client().request("GET", resource, item_id=item_id, params=params, company_id=company_id)
         
         # Add metadata
         if isinstance(result, dict):

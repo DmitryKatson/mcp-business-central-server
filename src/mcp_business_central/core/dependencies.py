@@ -13,12 +13,6 @@ from ..auth import BCAuthManager
 from ..api import BCAPIClient
 from .company_manager import CompanyManager
 
-# Load configuration silently during import (MCP protocol requirement)
-try:
-    config = BCServerConfig.from_environment()
-except Exception as e:
-    raise
-
 # Initialize logging with MCP-safe configuration
 setup_logging()
 
@@ -30,10 +24,56 @@ if os.getenv('MCP_VERBOSE', '').lower() == 'true':
 
 logger = get_logger(__name__)
 
-# Initialize components
-auth_manager = BCAuthManager(config)
-api_client = BCAPIClient(config, auth_manager)
-company_manager = CompanyManager(api_client)
+# Lazy initialization - components will be created when first needed
+_config = None
+_auth_manager = None
+_api_client = None
+_company_manager = None
+
+def get_config():
+    """Get configuration, loading it lazily when first needed."""
+    global _config
+    if _config is None:
+        try:
+            _config = BCServerConfig.from_environment()
+        except Exception as e:
+            logger.error(f"Failed to load configuration: {e}")
+            raise
+    return _config
+
+def get_auth_manager():
+    """Get auth manager, creating it lazily when first needed."""
+    global _auth_manager
+    if _auth_manager is None:
+        _auth_manager = BCAuthManager(get_config())
+    return _auth_manager
+
+def get_api_client():
+    """Get API client, creating it lazily when first needed."""
+    global _api_client
+    if _api_client is None:
+        _api_client = BCAPIClient(get_config(), get_auth_manager())
+    return _api_client
+
+def get_company_manager():
+    """Get company manager, creating it lazily when first needed."""
+    global _company_manager
+    if _company_manager is None:
+        _company_manager = CompanyManager(get_api_client())
+    return _company_manager
+
+# Legacy compatibility - these will be created when first accessed
+def config():
+    return get_config()
+
+def auth_manager():
+    return get_auth_manager()
+
+def api_client():
+    return get_api_client()
+
+def company_manager():
+    return get_company_manager()
 
 # Initialize MCP server
 mcp = FastMCP(
@@ -57,9 +97,9 @@ async def bc_request(method: str, resource: str, item_id: Optional[str] = None,
     
     try:
         if not company_id:
-            company_id = await company_manager.get_active_company_id()
+            company_id = await get_company_manager().get_active_company_id()
         
-        result = await api_client.request(method, resource, item_id, params, data, company_id)
+        result = await get_api_client().request(method, resource, item_id, params, data, company_id)
         return result
     except APIError as e:
         return {"error": str(e)}
@@ -70,7 +110,7 @@ async def bc_request(method: str, resource: str, item_id: Optional[str] = None,
 async def discover_companies():
     """Legacy wrapper for company discovery - use company_manager.discover_companies() instead."""
     try:
-        companies = await company_manager.discover_companies()
+        companies = await get_company_manager().discover_companies()
         return [{"id": c.id, "name": c.name, "displayName": c.display_name} for c in companies]
     except Exception:
         return []
@@ -79,7 +119,7 @@ async def discover_companies():
 async def get_default_company():
     """Legacy wrapper for default company - use company_manager.get_default_company() instead."""
     try:
-        company = await company_manager.get_default_company()
+        company = await get_company_manager().get_default_company()
         return {"id": company.id, "name": company.name} if company else None
     except Exception:
         return None
@@ -88,7 +128,7 @@ async def get_default_company():
 async def set_company(company_id: str) -> bool:
     """Legacy wrapper for setting company - use company_manager.set_active_company() instead."""
     try:
-        await company_manager.set_active_company(company_id)
+        await get_company_manager().set_active_company(company_id)
         return True
     except Exception:
         return False
@@ -97,6 +137,6 @@ async def set_company(company_id: str) -> bool:
 async def get_active_company_id() -> Optional[str]:
     """Legacy wrapper for active company ID - use company_manager.get_active_company_id() instead."""
     try:
-        return await company_manager.get_active_company_id()
+        return await get_company_manager().get_active_company_id()
     except Exception:
         return None
