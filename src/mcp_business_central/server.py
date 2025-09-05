@@ -65,3 +65,12 @@ def get_request_clients(ctx: Any) -> Tuple[BCAPIClient, CompanyManager]:
 
     # Fallback to environment-backed default singletons
     return get_default_api_client(), get_default_company_manager()
+
+
+# --- Tool registration ---
+# Importing the tools module registers all tools on the FastMCP instance.
+# Do this after mcp, logger, and get_request_clients are defined to avoid circular import issues.
+try:
+    from .tools import mcp_tools  # noqa: F401
+except Exception as _tool_import_error:
+    logger.error(f"Failed to register tools: {_tool_import_error}")
