@@ -50,21 +50,30 @@ def get_request_clients(ctx: Any) -> Tuple[BCAPIClient, CompanyManager]:
         
     Returns:
         Tuple of (BCAPIClient, CompanyManager) for the request
+        
+    Raises:
+        RuntimeError: If neither headers nor environment provide valid authentication
     """
     try:
         headers: Mapping[str, str] = {}
         req = getattr(ctx, 'request', None)
         if req is not None:
             headers = getattr(req, 'headers', {}) or {}
+        
         built = build_clients_from_headers(headers)
         if built is not None:
             return built
-    except Exception:
-        # Ignore context/header parsing issues and fall back gracefully
-        pass
+    except Exception as e:
+        logger.debug(f"Header parsing failed: {e}")
+        # Continue to fallback
 
     # Fallback to environment-backed default singletons
-    return get_default_api_client(), get_default_company_manager()
+    try:
+        return get_default_api_client(), get_default_company_manager()
+    except RuntimeError as e:
+        # No environment config and no valid headers
+        logger.error("Authentication failed: No valid environment variables or request headers found")
+        raise RuntimeError("Missing required environment variables: BC_TENANT_ID, BC_CLIENT_ID, BC_CLIENT_SECRET") from e
 
 
 # --- Tool registration ---

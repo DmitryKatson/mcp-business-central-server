@@ -27,7 +27,11 @@ def get_default_api_client():
     if _api_client is None:
         from ..auth import get_default_auth_manager
         from .config import get_default_config
-        _api_client = BCAPIClient(get_default_config(), get_default_auth_manager())
+        config = get_default_config()
+        auth_manager = get_default_auth_manager()
+        if config is None or auth_manager is None:
+            raise RuntimeError("No default configuration available. Authentication must be provided via request headers.")
+        _api_client = BCAPIClient(config, auth_manager)
     return _api_client
 
 def get_default_company_manager():

@@ -108,6 +108,13 @@ def get_default_config():
             from ..logging import get_logger
             logger = get_logger(__name__)
             _config = BCServerConfig.from_environment()
+        except ConfigurationError as e:
+            # Import logger here to avoid circular imports
+            from ..logging import get_logger
+            logger = get_logger(__name__)
+            # Don't throw error immediately - this might be FastMCP Cloud where headers provide auth
+            logger.warning(f"Environment variables not configured: {e}. Will rely on request headers for authentication.")
+            _config = None
         except Exception as e:
             # Import logger here to avoid circular imports
             from ..logging import get_logger
