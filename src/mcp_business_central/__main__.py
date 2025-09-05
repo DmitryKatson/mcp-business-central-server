@@ -6,7 +6,7 @@ This file allows the package to be executed with: python -m mcp_business_central
 """
 
 import asyncio
-from .core.dependencies import mcp
+from .server import mcp
 
 
 async def main() -> None:

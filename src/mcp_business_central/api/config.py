@@ -10,7 +10,21 @@ from dataclasses import dataclass
 from typing import Optional
 from dotenv import load_dotenv
 
-from .exceptions import ConfigurationError
+from ..logging.exceptions import ConfigurationError
+
+
+def build_business_central_url(tenant_id: str, environment: str = "production") -> str:
+    """
+    Build the Business Central API base URL.
+    
+    Args:
+        tenant_id: Azure AD tenant ID or Business Central tenant name
+        environment: Environment (production or sandbox)
+        
+    Returns:
+        Complete Business Central API base URL
+    """
+    return f"https://api.businesscentral.dynamics.com/v2.0/{tenant_id}/{environment}/api/v2.0"
 
 
 @dataclass(frozen=True)
@@ -47,7 +61,7 @@ class BCServerConfig:
                 f"Missing required environment variables: {', '.join(missing_vars)}"
             )
         
-        base_url = f"https://api.businesscentral.dynamics.com/v2.0/{tenant_id}/{environment}/api/v2.0"
+        base_url = build_business_central_url(tenant_id, environment)
         
         return cls(
             tenant_id=tenant_id,
@@ -56,6 +70,51 @@ class BCServerConfig:
             environment=environment,
             base_url=base_url
         )
+    
+    @classmethod
+    def from_headers(cls, tenant_id: str, environment: str = "production", 
+                     client_id: str = "", client_secret: str = "") -> 'BCServerConfig':
+        """
+        Create configuration from header-provided values.
+        
+        Args:
+            tenant_id: Azure AD tenant ID or Business Central tenant name
+            environment: Environment (production or sandbox)
+            client_id: Optional Azure AD client ID
+            client_secret: Optional Azure AD client secret
+            
+        Returns:
+            BCServerConfig instance
+        """
+        base_url = build_business_central_url(tenant_id, environment)
+        
+        return cls(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            client_secret=client_secret,
+            environment=environment,
+            base_url=base_url
+        )
+
+
+# Lazy configuration singleton
+_config = None
+
+def get_default_config():
+    """Get configuration, loading it lazily when first needed."""
+    global _config
+    if _config is None:
+        try:
+            from ..logging import get_logger
+            logger = get_logger(__name__)
+            _config = BCServerConfig.from_environment()
+        except Exception as e:
+            # Import logger here to avoid circular imports
+            from ..logging import get_logger
+            logger = get_logger(__name__)
+            logger.error(f"Failed to load configuration: {e}")
+            raise
+    return _config
 
 
 @dataclass(frozen=True)

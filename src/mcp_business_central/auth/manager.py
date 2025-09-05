@@ -11,8 +11,8 @@ from typing import Optional, Tuple, Any, Mapping
 import msal
 
 import logging
-from ..config import BCServerConfig
-from ..config.exceptions import AuthenticationError
+from ..api.config import BCServerConfig
+from ..logging.exceptions import AuthenticationError
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +130,7 @@ def build_clients_from_headers(headers: Mapping[str, str]) -> Optional[Tuple[Any
     """
     # Import here to avoid circular imports
     from ..api import BCAPIClient
-    from ..core.company_manager import CompanyManager
+    from ..api.company_manager import CompanyManager
     
     h = _lower_headers(headers or {})
 
@@ -144,14 +144,12 @@ def build_clients_from_headers(headers: Mapping[str, str]) -> Optional[Tuple[Any
         # Cannot construct base_url without tenant
         return None
 
-    # Construct a minimal config – client credentials optional for bearer path
-    base_url = f"https://api.businesscentral.dynamics.com/v2.0/{tenant_id}/{environment}/api/v2.0"
-    cfg = BCServerConfig(
+    # Use the factory method to avoid duplicating config logic
+    cfg = BCServerConfig.from_headers(
         tenant_id=tenant_id,
-        client_id=client_id or "",
-        client_secret=client_secret or "",
         environment=environment,
-        base_url=base_url,
+        client_id=client_id or "",
+        client_secret=client_secret or ""
     )
 
     # Prefer bearer token if provided

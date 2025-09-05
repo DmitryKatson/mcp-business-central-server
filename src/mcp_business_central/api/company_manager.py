@@ -7,9 +7,9 @@ for Business Central operations.
 
 import logging
 from typing import List, Optional
-from ..api import BCAPIClient
-from ..config.exceptions import CompanyNotFoundError
-from ..models import Company
+from .client import BCAPIClient
+from ..logging.exceptions import CompanyNotFoundError
+from .models import Company
 
 logger = logging.getLogger(__name__)
 

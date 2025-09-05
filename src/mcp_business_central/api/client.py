@@ -10,9 +10,10 @@ import aiohttp
 
 import logging
 from ..auth import BCAuthManager
-from ..config import BCServerConfig
-from ..config.exceptions import APIError, AuthenticationError
-from ..models import APIResponse, Company
+from .config import BCServerConfig
+from ..logging.exceptions import APIError, AuthenticationError
+from .models import Company
+from .responses import APIResponse
 
 logger = logging.getLogger(__name__)
 

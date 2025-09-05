@@ -9,11 +9,12 @@ from typing import Dict, Any, Optional, Union, Annotated
 from pydantic import Field
 
 from mcp.server.fastmcp import Context
-from ..core.dependencies import mcp, logger, get_request_clients
-from ..config.exceptions import ValidationError, APIError, CompanyNotFoundError
-from ..models import APIResponse, SchemaInfo
-from ..config.utils import validate_resource_name, validate_field_name, build_odata_filter, convert_to_int
-from ..config.metadata import (
+from ..server import mcp, logger, get_request_clients
+from ..logging.exceptions import ValidationError, APIError, CompanyNotFoundError
+from ..api.responses import APIResponse
+from ..api.models import SchemaInfo
+from ..utils import validate_resource_name, validate_field_name, build_odata_filter, convert_to_int
+from ..api.metadata import (
     parse_metadata_xml, get_metadata_summary, search_entities, 
     search_enums, search_properties, search_relationships
 )

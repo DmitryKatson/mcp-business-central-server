@@ -7,36 +7,9 @@ for data validation, conversion, and other common operations.
 
 import logging
 from typing import Any, Union, Optional
-from .exceptions import ValidationError
+from ..logging.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
-
-
-def safe_int_convert(value: Union[str, int, None]) -> Optional[int]:
-    """
-    Safely convert a value to integer.
-    
-    Args:
-        value: Value to convert (string, int, or None)
-        
-    Returns:
-        Converted integer or None if conversion fails
-    """
-    if value is None:
-        return None
-    
-    if isinstance(value, int):
-        return value
-    
-    if isinstance(value, str):
-        try:
-            return int(value)
-        except ValueError:
-            logger.warning(f"Invalid integer value: {value}")
-            return None
-    
-    logger.warning(f"Unexpected type for integer conversion: {type(value)}")
-    return None
 
 
 def validate_resource_name(resource: str) -> str:
@@ -193,8 +166,6 @@ def convert_to_int(value, param_name, allow_negative=False):
     Raises:
         ValidationError: If value cannot be converted to valid integer
     """
-    from .exceptions import ValidationError
-    
     if value is None:
         return None
     

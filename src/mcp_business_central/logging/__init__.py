@@ -9,7 +9,7 @@ import logging
 import sys
 from typing import Optional
 
-from .settings import LoggingConfig
+from ..api.config import LoggingConfig
 
 
 def setup_logging(config: Optional[LoggingConfig] = None) -> None:

@@ -2,7 +2,7 @@
 FastMCP Cloud entry point for Business Central MCP Server
 """
 
-from .core.dependencies import mcp
+from .server import mcp
 
 # Import tools to register them with the MCP server
 from .tools import implementations  # noqa: F401

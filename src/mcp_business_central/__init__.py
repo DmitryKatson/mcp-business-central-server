@@ -16,13 +16,12 @@ def main_entry():
 __all__ = [
     "main_entry",
     "main",
-    # Core modules
-    "core",
-    "api", 
-    "auth",
-    "models",
-    "tools",
-    "config"
+    # Main modules
+    "api",      # Everything to work with BC APIs
+    "auth",     # Everything to work with BC auth  
+    "tools",    # MCP tools definitions
+    "logging",  # Logging and error handling
+    "utils"     # Helper functions
 ]
 
 __version__ = "1.0.0"
